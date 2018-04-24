@@ -50,7 +50,7 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
 
     private GoogleMap mMap;
     private FusedLocationProviderClient mFusedLocationClient;
-    private LatLng[] storeArray;
+    private LatLng[] storeArray = new LatLng[1196];
     private String[][] readFileArray = new String[1196][8];
     private List<Marker> markers = new ArrayList<>();
     private Location myLocation;
@@ -73,7 +73,6 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         storeArray = new LatLng[1196];
         super.onStart();
     }
-
 
     private void setListners() {
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
@@ -99,8 +98,6 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
                 return false;
             }
         });
-
-
     }
 
     private int findRestaurantIndex(String name){
@@ -113,7 +110,6 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         }
         return -1;
     }
-
 
     public void readMcdonaldsCSV(){
         InputStream inputStream = getResources().openRawResource(R.raw.mcdonalds);
@@ -132,7 +128,10 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
             double b = Double.parseDouble(row[2]);
             tempLatLng = new LatLng(a, b);
             storeArray[i] = tempLatLng;
-            mMap.addMarker(new MarkerOptions().position(tempLatLng).title(name).snippet(row[7]).icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_GREEN)));
+            if ( row[7] == )
+                mMap.addMarker(new MarkerOptions().position(tempLatLng).title(name).snippet(row[7]).icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_RED)));
+            else
+                mMap.addMarker(new MarkerOptions().position(tempLatLng).title(name).snippet(row[7]).icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_GREEN)));
 
             readFileArray[i][0] = row[0];
             readFileArray[i][1] = row[1];
