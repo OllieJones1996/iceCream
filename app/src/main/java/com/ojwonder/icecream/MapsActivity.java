@@ -1,10 +1,12 @@
 package com.ojwonder.icecream;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.location.Location;
 import android.location.LocationManager;
+import android.nfc.Tag;
 import android.os.Build;
 import android.os.Environment;
 import android.renderscript.ScriptGroup;
@@ -15,6 +17,7 @@ import android.support.v4.app.FragmentActivity;
 import android.os.Bundle;
 import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AppCompatActivity;
+import android.util.Log;
 import android.widget.Toast;
 
 import com.google.android.gms.location.FusedLocationProviderClient;
@@ -47,15 +50,23 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class MapsActivity extends FragmentActivity implements OnMapReadyCallback {
-
+    //location var
     private GoogleMap mMap;
     private FusedLocationProviderClient mFusedLocationClient;
-    private LatLng[] storeArray = new LatLng[1196];
-    private String[][] readFileArray = new String[1196][8];
-    private List<Marker> markers = new ArrayList<>();
     private Location myLocation;
+    private LatLng myLatLong;
     private boolean mLocationPermissionGranted = false;
     private static int LOCATION_PERMISSION_REQUEST_CODE = 1234;
+
+    //csv var
+    private LatLng[] storeArray = new LatLng[1196];
+    private String[][] readFileArray = new String[1196][8];
+    float[] distanceResults = new float[1196];
+
+    //var
+    private static final String TAG = "MyActivity";
+
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -65,73 +76,91 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         mFusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
         SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager().findFragmentById(R.id.map);
         mapFragment.getMapAsync(this);
+
+        setListners();
+        setListners();
     }
 
     @RequiresApi(api = Build.VERSION_CODES.M)
     protected void onStart() {
         requestLocationPermission();
-        storeArray = new LatLng[1196];
+
         super.onStart();
+    }
+
+    private void setLatLong() {
+        double a = myLocation.getLatitude();
+        double b = myLocation.getLongitude();
+        myLatLong = new LatLng(a, b);
+    }
+
+    private void setMyLocation() {
     }
 
     private void setListners() {
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
             mLocationPermissionGranted = true;
             mFusedLocationClient.getLastLocation().addOnSuccessListener(this, new OnSuccessListener<Location>() {
+                @SuppressLint("MissingPermission")
                 @Override
                 public void onSuccess(Location location) {
                     if (location != null) {
                         myLocation = location;
+                        myLatLong = new LatLng(myLocation.getLatitude(), myLocation.getLongitude());
+                        Log.d(TAG, "setListeners: location != null");
+
+
                     } else {
-                        Toast.makeText(MapsActivity.this, "Location FAILED", Toast.LENGTH_SHORT).show();
+                        Log.d(TAG, "setListeners: location = null");
                     }
+                    mMap.setMyLocationEnabled(true);
+
                 }
             });
-            return;
+            //return;
         }
 
-        mMap.setOnMarkerClickListener(new GoogleMap.OnMarkerClickListener() {
-            @Override
-            public boolean onMarkerClick(Marker marker) {
-                int temp = findRestaurantIndex(marker.getTitle());
-                Toast.makeText(MapsActivity.this, Integer.toString(temp), Toast.LENGTH_SHORT).show();
-                return false;
-            }
-        });
     }
 
-    private int findRestaurantIndex(String name){
-        for ( int i = 0; i <= readFileArray.length; i++){
-            if ( name == readFileArray[i][0] ){
+
+    private void inMyRadius(LatLng mLatLng) {
+        for (int i = 0; i <= storeArray.length - 1; i++) {
+            Location.distanceBetween(mLatLng.latitude, mLatLng.longitude, storeArray[i].latitude, storeArray[i].longitude, distanceResults);
+            if (distanceResults[0] <= 16093.4) {
+                if (readFileArray[i][7].length() == 3)
+                    mMap.addMarker(new MarkerOptions().position(storeArray[i]).title(readFileArray[i][0]).snippet(readFileArray[i][7]).icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_RED)));
+                else
+                    mMap.addMarker(new MarkerOptions().position(storeArray[i]).title(readFileArray[i][0]).snippet(readFileArray[i][7]).icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_GREEN)));
+            }
+        }
+    }
+
+    private int getRestaurantIndex(String name) {
+        for (int i = 0; i <= readFileArray.length; i++) {
+            if (name == readFileArray[i][0]) {
                 return i;
             }
-            else
-                return -1;
         }
         return -1;
     }
 
-    public void readMcdonaldsCSV(){
+    public void readMcdonaldsCSV() {
         InputStream inputStream = getResources().openRawResource(R.raw.mcdonalds);
         BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream));
         LatLng tempLatLng;
         String csvLine = null;
-        for( int i = 0; i <= 1100; i++){
+        for (int i = 0; i <= 1100; i++) {
             try {
                 csvLine = reader.readLine();
             } catch (IOException e) {
                 e.printStackTrace();
             }
-            String [] row = csvLine.split(",");
+            String[] row = csvLine.split(",");
             String name = row[0];
             double a = Double.parseDouble(row[1]);
             double b = Double.parseDouble(row[2]);
             tempLatLng = new LatLng(a, b);
             storeArray[i] = tempLatLng;
-            if ( row[7] == )
-                mMap.addMarker(new MarkerOptions().position(tempLatLng).title(name).snippet(row[7]).icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_RED)));
-            else
-                mMap.addMarker(new MarkerOptions().position(tempLatLng).title(name).snippet(row[7]).icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_GREEN)));
 
             readFileArray[i][0] = row[0];
             readFileArray[i][1] = row[1];
@@ -144,20 +173,17 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         }
     }
 
-    private void drawCircle(LatLng currentLocation){
+    private void drawCircle(LatLng currentLocation) {
         //The radius of the circle, specified in meters. It should be zero or greater.
         Circle circle = mMap.addCircle(new CircleOptions().center(currentLocation).radius(16000).strokeColor(Color.rgb(0, 136, 255)).fillColor(Color.argb(20, 0, 136, 255)));
     }
 
     @RequiresApi(api = Build.VERSION_CODES.M)
-    private void requestLocationPermission(){
+    private void requestLocationPermission() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             if (ActivityCompat.shouldShowRequestPermissionRationale(this, Manifest.permission.ACCESS_FINE_LOCATION)) {
-                // Show an explanation to the user *asynchronously* -- don't block
-                // this thread waiting for the user's response! After the user
-                // sees the explanation, try again to request the permission.
+
             } else {
-                // No explanation needed; request the permission
                 ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, LOCATION_PERMISSION_REQUEST_CODE);
                 mLocationPermissionGranted = true;
             }
@@ -168,38 +194,77 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         }
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             if (ActivityCompat.shouldShowRequestPermissionRationale(this, Manifest.permission.ACCESS_COARSE_LOCATION)) {
-                // Show an explanation to the user *asynchronously* -- don't block
-                // this thread waiting for the user's response! After the user
-                // sees the explanation, try again to request the permission.
                 requestLocationPermission();
             } else {
-                // No explanation needed; request the permission
                 ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.ACCESS_COARSE_LOCATION}, LOCATION_PERMISSION_REQUEST_CODE);
                 mLocationPermissionGranted = true;
             }
         } else {
-            //Toast.makeText(this, "permission already granted", Toast.LENGTH_SHORT).show();
             requestPermissions(new String[]{Manifest.permission.ACCESS_COARSE_LOCATION}, LOCATION_PERMISSION_REQUEST_CODE);
             mLocationPermissionGranted = true;
         }
     }
 
-    /**
-     * Manipulates the map once available.
-     * This callback is triggered when the map is ready to be used.
-     * This is where we can add markers or lines, add listeners or move the camera. In this case,
-     * we just add a marker near Sydney, Australia.
-     * If Google Play services is not installed on the device, the user will be prompted to install
-     * it inside the SupportMapFragment. This method will only be triggered once the user has
-     * installed Google Play services and returned to the app.
-     */
     @Override
     public void onMapReady(GoogleMap googleMap) {
+        Log.d(TAG, "onMapReady");
         mMap = googleMap;
-        setListners();
-        readMcdonaldsCSV();
-        //LatLng mLatLng = new LatLng(myLocation.getLatitude(), myLocation.getLongitude());
-        //drawCircle(mLatLng);
 
+        //setMyLocation();
+        //setLatLong();
+        readMcdonaldsCSV();
+        addMarkers();
+
+        if (! (myLatLong == null)) {
+            Toast.makeText(this, "LATLONG NULL", Toast.LENGTH_LONG).show();
+        }
+
+        if (myLocation == null) {
+            Toast.makeText(this, "LOCATION NULL", Toast.LENGTH_LONG).show();
+        }
+
+        mMap.setOnMarkerClickListener(new GoogleMap.OnMarkerClickListener() {
+            @Override
+            public boolean onMarkerClick(Marker marker) {
+                int temp = getRestaurantIndex(marker.getTitle());
+                Toast.makeText(MapsActivity.this, Integer.toString(temp), Toast.LENGTH_LONG).show();
+                return false;
+            }
+        });
+
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+        mMap.setMyLocationEnabled(true);
+
+        //mMap.addCircle(new CircleOptions().center(new LatLng(myLatLong.latitude, myLatLong.longitude)).radius(32000).strokeColor(Color.GREEN));
+
+
+
+        //inMyRadius(myLatLong);
+        //setListners();
+    }
+
+    private void addMarkers() {
+        Log.d(TAG, "addMarker: adding markers");
+        for (int i = 0; i <= storeArray.length - 1; i++) {
+            if (!(storeArray[i] == null)) {
+                switch (readFileArray[i][7]) {
+                    case "off":
+                        mMap.addMarker(new MarkerOptions().position(storeArray[i]).title(readFileArray[i][0]).snippet("Status: OFF").icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_RED)));
+                        Log.d(TAG, "addMarker: added OFF marker");
+                        break;
+                    case "on":
+                        mMap.addMarker(new MarkerOptions().position(storeArray[i]).title(readFileArray[i][0]).snippet("Status: ON").icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_GREEN)));
+                        Log.d(TAG, "addMarker: added ON marker");
+                        break;
+                    default:
+                        mMap.addMarker(new MarkerOptions().position(storeArray[i]).title(readFileArray[i][0]).snippet("Status: Unknown").icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_YELLOW)));
+                        Log.d(TAG, "addMarker: added ? marker");
+                        break;
+                }
+
+            }
+        }
     }
 }
