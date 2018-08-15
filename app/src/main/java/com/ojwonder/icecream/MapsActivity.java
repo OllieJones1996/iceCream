@@ -2,6 +2,9 @@ package com.ojwonder.icecream;
 
 import android.Manifest;
 import android.annotation.SuppressLint;
+import android.app.Activity;
+import android.app.Dialog;
+import android.content.Context;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.location.Location;
@@ -9,6 +12,7 @@ import android.location.LocationManager;
 import android.nfc.Tag;
 import android.os.Build;
 import android.os.Environment;
+import android.os.Handler;
 import android.renderscript.ScriptGroup;
 import android.support.annotation.NonNull;
 import android.support.annotation.RequiresApi;
@@ -20,8 +24,13 @@ import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
 import android.widget.Toast;
 
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.GoogleApiAvailability;
+import com.google.android.gms.common.api.GoogleApiClient;
 import com.google.android.gms.location.FusedLocationProviderClient;
+import com.google.android.gms.location.LocationRequest;
 import com.google.android.gms.location.LocationServices;
+import com.google.android.gms.maps.CameraUpdate;
 import com.google.android.gms.maps.CameraUpdateFactory;
 import com.google.android.gms.maps.GoogleMap;
 import com.google.android.gms.maps.LocationSource;
@@ -34,7 +43,10 @@ import com.google.android.gms.maps.model.CircleOptions;
 import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.Marker;
 import com.google.android.gms.maps.model.MarkerOptions;
+import com.google.android.gms.tasks.OnCompleteListener;
 import com.google.android.gms.tasks.OnSuccessListener;
+import com.google.android.gms.tasks.Task;
+import com.muddzdev.styleabletoastlibrary.StyleableToast;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
@@ -45,92 +57,204 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.lang.reflect.Array;
+import java.net.HttpURLConnection;
+import java.net.MalformedURLException;
+import java.net.URL;
 import java.nio.Buffer;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 
 public class MapsActivity extends FragmentActivity implements OnMapReadyCallback {
+
     //location var
     private GoogleMap mMap;
-    private FusedLocationProviderClient mFusedLocationClient;
+    private FusedLocationProviderClient locationProvider;
     private Location myLocation;
-    private LatLng myLatLong;
-    private boolean mLocationPermissionGranted = false;
-    private static int LOCATION_PERMISSION_REQUEST_CODE = 1234;
+    private LocationRequest locationRequest;
+    private GoogleApiClient googleApiClient;
+    private LatLng myLatLong = new LatLng(-5.55555, 5.55555);
+    private boolean locationPermissionGranted = false;
+
 
     //csv var
     private LatLng[] storeArray = new LatLng[1196];
     private String[][] readFileArray = new String[1196][8];
-    float[] distanceResults = new float[1196];
+    private float[] distanceResults = new float[1196];
+    private Marker[] markerArray = new Marker[100];
+
+
+    private Date todaysDate;
+    private int finished = 0;
 
     //var
     private static final String TAG = "MyActivity";
+    private static final int LOCATION_PERMISSION_REQUEST_CODE = 1234;
+    private static final int ERROR_DIALOG_REQUEST = 9001;
+    private static final float DEFAULT_ZOOM = (float) 9.0293;
 
 
+    @SuppressLint("MissingPermission")
+    @RequiresApi(api = Build.VERSION_CODES.M)
+    @Override
+    public void onMapReady(GoogleMap googleMap) {
+        StyleableToast.makeText(this, "current location: "+ myLatLong.toString(), Toast.LENGTH_LONG, R.style.GreenToast).show();
+        Log.d(TAG, "onMapReady");
+        mMap = googleMap;
+
+        if(locationPermissionGranted == true){
+            @SuppressLint("MissingPermission") Task<Location> locationResult = locationProvider.getLastLocation();
+            locationResult.addOnCompleteListener(new OnCompleteListener<Location>() {
+                @Override
+                public void onComplete(@NonNull Task<Location> task) {
+                    if (task.isSuccessful()) {
+                        // Set the map's camera position to the current location of the device.
+                        myLocation = task.getResult();
+                        mMap.setMyLocationEnabled(true); //set my location on the map
+                        myLatLong = new LatLng(myLocation.getLatitude(), myLocation.getLongitude());
+                        CameraUpdate update = CameraUpdateFactory.newLatLngZoom(myLatLong, DEFAULT_ZOOM);
+                        mMap.moveCamera(update);
+                        drawCircle(myLatLong);
+                        StyleableToast.makeText(MapsActivity.this, "current location: "+ myLatLong.toString(), Toast.LENGTH_LONG, R.style.GreenToast).show();
+                        finished = 1;
+
+
+                    } else {
+                        StyleableToast.makeText(MapsActivity.this, "Please turn on your location", Toast.LENGTH_LONG, R.style.RedToast).show();
+                        finished = 1;
+                        //myLatLong
+                    }
+                }
+            });
+
+        }
+        //TODO: Replace reading from CSV with API call to server
+        readMcdonaldsCSV(); //load data from file
+
+
+        //below code is run after 1 second to allow for the Location task to finish and not freeze UI thread
+        Handler handler = new Handler();
+        Runnable r = new Runnable() {
+            public void run() {
+                if (!(myLatLong == null)){
+                    addMarkersInMyRadius(myLatLong);
+                } else {
+                    StyleableToast.makeText(MapsActivity.this, "Latitude and Longitude are NULL. There was a problem retrieving your current location.", Toast.LENGTH_LONG, R.style.RedToast).show();
+                }
+
+            }
+        };
+        handler.postDelayed(r, 1000);
+
+
+
+
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_maps);
         // Obtain the SupportMapFragment and get notified when the map is ready to be used.
-        mFusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
-        SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager().findFragmentById(R.id.map);
-        mapFragment.getMapAsync(this);
+        locationProvider = LocationServices.getFusedLocationProviderClient(this);
 
-        setListners();
-        setListners();
+        getLocationPermission(); //makes sure the user has given permission to location
+        //isServicesOK();
+
+
     }
 
     @RequiresApi(api = Build.VERSION_CODES.M)
     protected void onStart() {
-        requestLocationPermission();
+        getLocationPermission();
 
         super.onStart();
     }
 
-    private void setLatLong() {
-        double a = myLocation.getLatitude();
-        double b = myLocation.getLongitude();
-        myLatLong = new LatLng(a, b);
+    private void initMap(){
+        SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager().findFragmentById(R.id.map);
+        mapFragment.getMapAsync(this);
+
     }
 
-    private void setMyLocation() {
-    }
-
-    private void setListners() {
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-            mLocationPermissionGranted = true;
-            mFusedLocationClient.getLastLocation().addOnSuccessListener(this, new OnSuccessListener<Location>() {
-                @SuppressLint("MissingPermission")
-                @Override
-                public void onSuccess(Location location) {
-                    if (location != null) {
-                        myLocation = location;
-                        myLatLong = new LatLng(myLocation.getLatitude(), myLocation.getLongitude());
-                        Log.d(TAG, "setListeners: location != null");
-
-
-                    } else {
-                        Log.d(TAG, "setListeners: location = null");
-                    }
-                    mMap.setMyLocationEnabled(true);
-
-                }
-            });
-            //return;
+    public boolean isServicesOK(){
+        Log.d(TAG, "isServicesOK: checking google services version");
+        int available = GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(this);
+        if (available == ConnectionResult.SUCCESS){
+            //everything is okay user can perfom map requests
+            Log.d(TAG, "Google play service working");
+            return true;
+        } else if (GoogleApiAvailability.getInstance().isUserResolvableError(available)){
+            //an error occured but can be resolved
+            Log.d(TAG, "An error occured but can be fixed");
+            Dialog dialog = GoogleApiAvailability.getInstance().getErrorDialog(this, available,ERROR_DIALOG_REQUEST);
+        }else{
+            StyleableToast.makeText(this, "You cannot make map requests :(", Toast.LENGTH_LONG, R.style.RedToast);
         }
 
+        return false;
+}
+
+    private void getLocationPermission() {
+        String[] permissions = {Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION};
+        if (ContextCompat.checkSelfPermission(this.getApplicationContext(), Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+            if (ContextCompat.checkSelfPermission(this.getApplicationContext(), Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                locationPermissionGranted = true; //if permission already granted
+                initMap(); //initialise the map
+            }else {
+                ActivityCompat.requestPermissions(this, permissions, LOCATION_PERMISSION_REQUEST_CODE);
+                initMap();
+            }
+
+        }else {
+            ActivityCompat.requestPermissions(this, permissions, LOCATION_PERMISSION_REQUEST_CODE);
+            initMap();
+        }
     }
 
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        locationPermissionGranted = false;
+        switch (requestCode) {
+            case LOCATION_PERMISSION_REQUEST_CODE: {
+                if (grantResults.length > 0) {
+                    for (int i = 0; i < grantResults.length; i++) {
+                        if(grantResults[i] != PackageManager.PERMISSION_GRANTED){
+                            locationPermissionGranted = false;
+                            return;
+                        }
+                    }
+                    locationPermissionGranted = true;
+                }
+                locationPermissionGranted = true;
+            }
+        }
+    }
 
-    private void inMyRadius(LatLng mLatLng) {
+    private void addMarkersInMyRadius(LatLng mLatLng) {
         for (int i = 0; i <= storeArray.length - 1; i++) {
-            Location.distanceBetween(mLatLng.latitude, mLatLng.longitude, storeArray[i].latitude, storeArray[i].longitude, distanceResults);
-            if (distanceResults[0] <= 16093.4) {
-                if (readFileArray[i][7].length() == 3)
-                    mMap.addMarker(new MarkerOptions().position(storeArray[i]).title(readFileArray[i][0]).snippet(readFileArray[i][7]).icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_RED)));
-                else
-                    mMap.addMarker(new MarkerOptions().position(storeArray[i]).title(readFileArray[i][0]).snippet(readFileArray[i][7]).icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_GREEN)));
+            if (!(storeArray[i] == null)) {
+                Location.distanceBetween(mLatLng.latitude, mLatLng.longitude, storeArray[i].latitude, storeArray[i].longitude, distanceResults);
+                if (distanceResults[0] <= 16093.4) {
+                    switch (readFileArray[i][7]) {
+                        case "off":
+                            Marker marker = mMap.addMarker(new MarkerOptions().position(storeArray[i]).title(readFileArray[i][0]).snippet("Status: OFF").icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_RED)));
+                            marker.setTag(storeArray[i]);
+
+                            Log.d(TAG, "addMarker: added OFF marker");
+                            break;
+                        case "on":
+                            Marker marker1 = mMap.addMarker(new MarkerOptions().position(storeArray[i]).title(readFileArray[i][0]).snippet("Status: ON").icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_GREEN)));
+                            marker1.setTag(storeArray[i]);
+                            Log.d(TAG, "addMarker: added ON marker");
+                            break;
+                        default:
+                            mMap.addMarker(new MarkerOptions().position(storeArray[i]).title(readFileArray[i][0]).snippet("Status: Unknown").icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_YELLOW)));
+                            Log.d(TAG, "addMarker: added ? marker");
+                            break;
+                    }
+
+                }
             }
         }
     }
@@ -175,96 +299,42 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
 
     private void drawCircle(LatLng currentLocation) {
         //The radius of the circle, specified in meters. It should be zero or greater.
-        Circle circle = mMap.addCircle(new CircleOptions().center(currentLocation).radius(16000).strokeColor(Color.rgb(0, 136, 255)).fillColor(Color.argb(20, 0, 136, 255)));
+        mMap.addCircle(new CircleOptions().center(currentLocation).radius(16000).strokeColor(Color.rgb(0, 136, 255)));
     }
 
-    @RequiresApi(api = Build.VERSION_CODES.M)
-    private void requestLocationPermission() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            if (ActivityCompat.shouldShowRequestPermissionRationale(this, Manifest.permission.ACCESS_FINE_LOCATION)) {
+    private int requestStores() throws  IOException, MalformedURLException{
+        String sql = "";
+        URL url = new URL("https://icecream.olliejones.tech");
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection(); //start HTTPS connection
 
-            } else {
-                ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, LOCATION_PERMISSION_REQUEST_CODE);
-                mLocationPermissionGranted = true;
-            }
-        } else {
-            //Toast.makeText(this, "permission already granted", Toast.LENGTH_SHORT).show();
-            requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, LOCATION_PERMISSION_REQUEST_CODE);
-            mLocationPermissionGranted = true;
-        }
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            if (ActivityCompat.shouldShowRequestPermissionRationale(this, Manifest.permission.ACCESS_COARSE_LOCATION)) {
-                requestLocationPermission();
-            } else {
-                ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.ACCESS_COARSE_LOCATION}, LOCATION_PERMISSION_REQUEST_CODE);
-                mLocationPermissionGranted = true;
-            }
-        } else {
-            requestPermissions(new String[]{Manifest.permission.ACCESS_COARSE_LOCATION}, LOCATION_PERMISSION_REQUEST_CODE);
-            mLocationPermissionGranted = true;
-        }
+        sql = "SELECT * FROM TABLE mcdonalds_uk";
+
+        return 1;
     }
 
-    @Override
-    public void onMapReady(GoogleMap googleMap) {
-        Log.d(TAG, "onMapReady");
-        mMap = googleMap;
+    private int updateStoreStatus(String name, String status) throws  IOException, MalformedURLException{
+        String sql = "";
+        URL url = new URL("https://icecream.olliejones.tech");
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection(); //start HTTPS connection
 
-        //setMyLocation();
-        //setLatLong();
-        readMcdonaldsCSV();
-        addMarkers();
+        switch (status) {
+            case "off":
+                sql = "UPDATE mcdonalds_uk SET status = on WHERE name = " + name +";";
 
-        if (! (myLatLong == null)) {
-            Toast.makeText(this, "LATLONG NULL", Toast.LENGTH_LONG).show();
+            case "on":
+                sql = "UPDATE mcdonalds_uk SET status = off WHERE name = " + name +";";
         }
 
-        if (myLocation == null) {
-            Toast.makeText(this, "LOCATION NULL", Toast.LENGTH_LONG).show();
-        }
 
-        mMap.setOnMarkerClickListener(new GoogleMap.OnMarkerClickListener() {
-            @Override
-            public boolean onMarkerClick(Marker marker) {
-                int temp = getRestaurantIndex(marker.getTitle());
-                Toast.makeText(MapsActivity.this, Integer.toString(temp), Toast.LENGTH_LONG).show();
-                return false;
-            }
-        });
-
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            return;
-        }
-        mMap.setMyLocationEnabled(true);
-
-        //mMap.addCircle(new CircleOptions().center(new LatLng(myLatLong.latitude, myLatLong.longitude)).radius(32000).strokeColor(Color.GREEN));
-
-
-
-        //inMyRadius(myLatLong);
-        //setListners();
+        return 1;
     }
 
-    private void addMarkers() {
-        Log.d(TAG, "addMarker: adding markers");
-        for (int i = 0; i <= storeArray.length - 1; i++) {
-            if (!(storeArray[i] == null)) {
-                switch (readFileArray[i][7]) {
-                    case "off":
-                        mMap.addMarker(new MarkerOptions().position(storeArray[i]).title(readFileArray[i][0]).snippet("Status: OFF").icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_RED)));
-                        Log.d(TAG, "addMarker: added OFF marker");
-                        break;
-                    case "on":
-                        mMap.addMarker(new MarkerOptions().position(storeArray[i]).title(readFileArray[i][0]).snippet("Status: ON").icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_GREEN)));
-                        Log.d(TAG, "addMarker: added ON marker");
-                        break;
-                    default:
-                        mMap.addMarker(new MarkerOptions().position(storeArray[i]).title(readFileArray[i][0]).snippet("Status: Unknown").icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_YELLOW)));
-                        Log.d(TAG, "addMarker: added ? marker");
-                        break;
-                }
 
-            }
-        }
-    }
+
+
+
+
+
 }
+
+

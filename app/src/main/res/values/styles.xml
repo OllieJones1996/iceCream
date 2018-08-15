@@ -8,4 +8,30 @@
         <item name="colorAccent">@color/colorAccent</item>
     </style>
 
+    <style name="GreenToast">
+        <item name="textBold">true</item>
+        <item name="textColor">#002e63</item>
+        <item name="textSize">14sp</item>
+        <item name="colorBackground">#94ffab</item>
+        <item name="solidBackground">true</item>
+        <item name="strokeWidth">3dp</item>
+        <item name="strokeColor">#fff</item>
+        <item name="length">LONG</item> LONG or SHORT
+        <item name="gravity">top</item> top or center
+        <item name="radius">5dp</item>
+    </style>
+
+    <style name="RedToast">
+        <item name="textBold">true</item>
+        <item name="textColor">#002e63</item>
+        <item name="textSize">14sp</item>
+        <item name="colorBackground">#D80000</item>
+        <item name="solidBackground">true</item>
+        <item name="strokeWidth">3dp</item>
+        <item name="strokeColor">#fff</item>
+        <item name="length">LONG</item> LONG or SHORT
+        <item name="gravity">top</item> top or center
+        <item name="radius">5dp</item>
+    </style>
+
 </resources>
